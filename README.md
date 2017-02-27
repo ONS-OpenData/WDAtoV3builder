@@ -4,7 +4,8 @@ Builds experimental V3 input files using codelists and pre-canned CSVs downloade
 ## Requirements
 
 Python 3.
-Beautiful Soup 4, so just ``` pip install bs4```
+
+Beautiful Soup 4 (``` pip install bs4```)
 
 Everything else should be standard Python Libraries, specifically: requests, os, zipfile, csv, json, sys
 
