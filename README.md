@@ -3,7 +3,7 @@ Builds experimental V3 input files using codelists and pre-canned CSVs downloade
 
 ## Usage
 
-Select the ID for the dataset you want to convert from the ONS data explorer and use as follows:
+Select the ID for the dataset you want to convert from the ONS data explorer (http://web.ons.gov.uk/ons/data/dataset-finder) and use as follows:
 
 
 ```python V3builder.py <IDgoesHere>```
