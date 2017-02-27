@@ -21,4 +21,6 @@ This decision has multiple consequences, as follows:
 
 2.) It'll be fairly slow.
 
-3.) We will allready be writing the file before we hit any issues. Therefore the output file is created as 'INCOMPLETE-V3_<filename>' with the 'INCOMPLETE-' prefix only be removed after successful transformation and validation (so in other words, if you've got any files tagged delete left over at the end - DELETE them).
+3.) We will allready be writing the file before we hit any issues. Therefore the output file is created as 'INCOMPLETE-V3_<filename>' with the 'INCOMPLETE-' prefix only be removed after successful transformation and validation (so in other words, if you've got any files tagged incomplete left over at the end - just DELETE them).
+
+There's minimum housekeeping at the moment so you will end up with un-converted CSVs on your drive. Just be aware that successfully coverted files always start 'V3_', anything else is a temp file and can go.
