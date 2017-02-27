@@ -412,18 +412,12 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
         # Write the new CSV
         with open('Incomplete-V3_' + acsv, 'w', newline='') as targetfile:
             mywriter = csv.writer(targetfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-
+            
             for row in myreader:
                 count += 1
                 
                 try:
                     if count == 3:
-                        """
-                        DIFFERENTIATOR
-                        --------------
-                        I don't trust these. Until we've looked into it properly
-                        any url with 'diff=' in it wil error out long before this
-                        """
                         differentiator = row[0] 
                 except:
                     differentiator = False   # it fine, not all datasets have one
@@ -443,7 +437,7 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                             dimDict['measureType'] = dimDict.pop(4)
         
                             # hacky 1 line skip, we dont want to process this heder row as obs
-                            skipthisrow = True
+                            doHeader = True
                             
                             """ Since this effectivly marks the point we're ready, we'll
                             get some other structural information as well"""
@@ -471,8 +465,16 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                 if not found:
                     shuffle(row, dimDict)
                 
-                if found and skipthisrow:
-                    skipthisrow = False
+                if found and doHeader:
+                    
+                    # We're about to start make a headerrow
+                    headerRow = ['Observation','Data_Marking','Observation_Type_Value']
+                    numberOfDims = len(row[skipcols+1].split('~'))
+                    for i in range(1, numberOfDims+2):
+                        headerRow.append('Dimension_Hierarchy_' + str(i))
+                        headerRow.append('Dimension_Name_' + str(i))
+                        headerRow.append('Dimension_Value_' + str(i))
+                        doHeader=False
                     
                 elif found and len(row) < skipcols:
                     pass # its a bloody footer, do nothing
@@ -521,7 +523,6 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                             
                             # X ------------------------------------------
                             
-                            
                             newrow.append('time')
                             newrow.append(timeDim)
                             newrow.append(timeItem)
@@ -534,7 +535,13 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                             # add dimension triples             
                             for cell in contentSplit(justDims, justItems, structureDICT):
                                 newrow.append(cell)
+                            
+                            # output head if needed
+                            if headerRow != []:
+                                mywriter.writerow(headerRow)
+                                headerRow = []
                                 
+                            # outpurt processed obs
                             mywriter.writerow(newrow)
                         
     targetfile.close()
@@ -572,10 +579,7 @@ print('')
 for ddurl in urls:
         
         url = get_csv_url(ddurl)
-        
-        if 'diff=' in url:    
-            raise ValueError('Operation Aborted. This dataset uses a differentiator.')
-        
+
         print ('Creating Structural Dictionary')
         # create a dictioary of structural info
         hierarchy, structureDICT, obsCount = buildStructureDict(ddurl)
@@ -609,10 +613,6 @@ for ddurl in urls:
                 
         print ('V3 file created as: ' 'V3_' + targetCSV)
         print('')
-        
-        """
-        with open('sucess.text','a') as f:
-            f.write(identifier + ' of ' + str(len(urls)) + '\n')
-        """
+
         
         
