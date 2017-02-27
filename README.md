@@ -11,7 +11,7 @@ Select the ID for the dataset you want to convert from the ONS data explorer (ht
 
 ## Caveats
 
-It's built to work perfectly or break, this is deliberate. It will definetly fail on datasets without a public time component and datasets that use a differentiator. This is fine (we'll get around to them). You should still be able to convert the majority of WDA.
+It's built to work perfectly or break, this is deliberate. It will definetly fail on datasets without a public time component. This is fine (we'll get around to them). You should still be able to convert the majority of WDA.
 
 This tool uses line-by-line csv reading rather than dataframes etc, so convert 1 input line into X number of output lines then repeat until EOF.
 
