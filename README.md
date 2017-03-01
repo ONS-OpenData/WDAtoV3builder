@@ -9,6 +9,8 @@ Beautiful Soup 4 (``` pip install bs4```)
 
 Everything else should be standard Python Libraries, specifically: requests, os, zipfile, csv, json, sys
 
+....generating requirements.txt is a mess under windows :)
+
 ## Usage
 
 Select the ID for the dataset you want to convert from the ONS data explorer (http://web.ons.gov.uk/ons/data/dataset-finder) and use as follows:
