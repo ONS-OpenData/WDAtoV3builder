@@ -469,7 +469,10 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                     
                     # We're about to start make a headerrow
                     headerRow = ['Observation','Data_Marking','Observation_Type_Value']
-                    numberOfDims = len(row[skipcols+1].split('~'))
+                    dimSample = row[skipcols+1].split('~')
+                    numberOfDims = len(dimSample)
+                    if 'time' not in dimSample or 'Time' not in dimSample:
+                        numberOfDims += 1 # account for missing time dim
                     for i in range(1, numberOfDims+2):
                         headerRow.append('Dimension_Hierarchy_' + str(i))
                         headerRow.append('Dimension_Name_' + str(i))
@@ -575,6 +578,8 @@ print('Found the following files for this Identifier:')
 for f in urls:
     print(f)
 print('')
+
+
 
 for ddurl in urls:
         
