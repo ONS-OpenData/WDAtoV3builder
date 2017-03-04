@@ -172,6 +172,7 @@ def buildStructureDict(url):
                     tryAll = []
                     tryAll.append(codeListAsDICT['Structure']['CodeLists']['CodeList'])
                 else:
+                    # TODO - throw an error!
                     print('CodeList must be List or Dict')
                 
                 itemCodeList = {}
@@ -182,6 +183,10 @@ def buildStructureDict(url):
                     
                     # try every possible codelist for a match as theyre not differentiated in any way on the API. ffs!
                     try:
+                        
+                        # catch for 'lists' of 1 item.....sigh
+                        if type(listItem['Code']) != list:
+                            listItem['Code'] = [listItem['Code']]
                         
                         for item in listItem['Code']:
                             # try catch as not everything has a welsh name
@@ -216,6 +221,26 @@ def buildStructureDict(url):
      
 def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, rerun=False):
 
+    # if we're adding a row and it seems the wront length.... feedback
+    def throwRowLengthError(dimDict, row, i, justDims, justItems, timeDim, timeItem, oldrow, newrow, structureDICT):
+        print ('\nError: Generating row of unexpected length')
+        print ('--------------------------------------------')
+        print ('Row length expected/got: ', oldrow, newrow)
+        print ('Dimensions Cell: ', dimDict['dimensions'][i])
+        print ('Dimensions Found:' + str(justDims) + '\n')
+        print ('Items Cell: ', dimDict['items'][i])
+        print ('Items Found:' + str(justItems) + '\n')
+        print ('Chosen item Dim/Item: ', timeDim, timeItem)
+        print ('Target Cell: ', row[i], '\n')
+        print ('The structureDICT (lookups) have been output as debug-Dict.json:')
+        print ('--------------------------------------------')
+        
+        # dump the lookups so we can find out what went wrong
+        with open('debug-Dict.json' 'w') as debugDICT:
+            json.dump(structureDICT, debugDICT)
+        
+        
+        
     # Keeps track of previous 4 rows read
     dimDict = {1:'', 2:'', 3:'', 4:''}
     def shuffle(row, dimDict):
@@ -471,8 +496,12 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                     headerRow = ['Observation','Data_Marking','Observation_Type_Value']
                     dimSample = row[skipcols+1].split('~')
                     numberOfDims = len(dimSample)
-                    if 'time' not in dimSample or 'Time' not in dimSample:
+                    
+                    # TODO - too hacky
+                    timeWords = ['year', 'Year', 'Month', 'month', 'Quarter', 'quarter']
+                    if len([x for x in dimSample if x in timeWords]) > 0:
                         numberOfDims += 1 # account for missing time dim
+                    
                     for i in range(1, numberOfDims+2):
                         headerRow.append('Dimension_Hierarchy_' + str(i))
                         headerRow.append('Dimension_Name_' + str(i))
@@ -543,8 +572,10 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                             if headerRow != []:
                                 mywriter.writerow(headerRow)
                                 headerRow = []
+                                expectedRowLength = len(newrow)
                                 
-                            # outpurt processed obs
+                            # output processed obs
+                            if len(newrow) != expectedRowLength: throwRowLengthError(dimDict, row, i, justDims, justItems, timeDim, timeItem, str(len(newrow)), expectedRowLength, structureDICT)
                             mywriter.writerow(newrow)
                         
     targetfile.close()
