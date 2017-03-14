@@ -264,7 +264,7 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
         items = tuple(items.split('~'))
         
         doTime = False
-        timeNames = ['year', 'Year', 'Month', 'month', 'Quarter', 'quarter']
+        timeNames = ['year', 'Year', 'Month', 'month', 'Quarter', 'quarter', 'Time', 'time']
         for i in range(0, len(dims)):
             if dims[i] in timeNames:
                 timeNum = i
@@ -280,6 +280,11 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                 else:
                     timeDim = dims[i]
                     timeItem = items[i]
+
+                    # 'time' is too generic for time dimensoins, 
+                    # derrive it from timeItem
+                    if timeDim == 'Time' or timeDim =='time':
+                        timeDim, timeItem = cleanTimeString(timeItem)
 
             return timeDim, timeItem, justDims, justItems
         
@@ -378,8 +383,11 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
         months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
                   'Aug', 'Sep' 'Oct', 'Nov', 'Dec']
         for m in months:
-            if m or m.upper() or m.lower() in cell:
+            if m in cell or m.upper()  in cell or m.lower() in cell:
                 return 'months', cell
+    
+        # if we cant identify return blanks
+        return '', ''
 
         
     # WDA only has a finite number of differentiators in use, and thet somtimes define the
@@ -478,12 +486,12 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                         
                     
                     # Time will always be to left of geography so no need to worry about anything else
-                    # i,e this is optional, Geograpjic Id isnt, so the above code will proc in a cell or two anyway
+                    # i,e this is optional, Geographic Id isnt, so the above code will proc in a cell or two anyway
                     try:
                         if 'Time' in row[i]:
                             timeIndex = i
                     except:
-                        pass  # to stopit falling over if we an index a csv 'cell' that doesnt exist
+                        pass  # to stop it falling over if we an index a csv 'cell' that doesnt exist
                         
 
                 # keep track of last 4 rows if still looking for headers
@@ -497,10 +505,14 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                     dimSample = row[skipcols+1].split('~')
                     numberOfDims = len(dimSample)
                     
-                    # TODO - too hacky
-                    timeWords = ['year', 'Year', 'Month', 'month', 'Quarter', 'quarter']
+                    # TODO - too hacky. not DRY!
+                    timeWords = ['year', 'Year', 'Month', 'month', 'Quarter', 'quarter', 'Time', 'time']
                     if len([x for x in dimSample if x in timeWords]) > 0:
                         numberOfDims += 1 # account for missing time dim
+                    
+                    # account for having a time columns
+                    if timeIndex != False:
+                        numberOfDims += 1
                     
                     for i in range(1, numberOfDims+2):
                         headerRow.append('Dimension_Hierarchy_' + str(i))
@@ -536,8 +548,8 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                             # split out any time dimension
                             timeDim, timeItem, justDims, justItems = splitOutTime(dimDict['dimensions'][i], dimDict['items'][i])
                             
-                            # do we have a time string in the CSV
-                            if timeIndex is not False:
+                            # if we're still looking - do we have a time string in initial CSV columns?
+                            if timeDim == '' and timeIndex is not False:
                                 timeDim, timeItem = cleanTimeString(row[timeIndex])
                             
                             # if we still dont have time, try and get it from the differentiator
@@ -609,8 +621,6 @@ print('Found the following files for this Identifier:')
 for f in urls:
     print(f)
 print('')
-
-
 
 for ddurl in urls:
         
