@@ -79,24 +79,26 @@ def unpackAndGetName(zip_file_url):
 
 """ Grabs everything we'll need from dataset details """
 def buildStructureDict(url):
-    url = 'http://data.ons.gov.uk/ons/api/data/' + url
+    url = 'http://data.ons.gov.uk/ons/api/data/' + url.replace('.xml', '.json')
     r  = requests.get(url)
     
-    # Parse it, yank the dimensions link as json
-    soup = BeautifulSoup(r.content, 'lxml')
-    all_details = soup.find_all('url', {'representation':'json'})
-
-    # TODO - do it properly!
-    obsCount = soup.find_all('obscount')
-    obsCount = obsCount[0].text   
-
-    dimUrl = [x.text for x in all_details if '/dimensions.json' in x.text]
+    # Parse it, yank the dimensions code
+    jsonAsDict = json.loads(r.text)
+    all_dims = [x for x in jsonAsDict['ons']['datasetDetail']['dimensions']['dimension']]
     
-    # Switch to json and Dicts as this needs to be procedural
-    
-    url = 'http://data.ons.gov.uk/ons/api/data/' + dimUrl[0]
-    data = requests.get(url)
-    jsonAsDICT = json.loads(data.text)
+    dimList = []
+    name = ''
+    for dim in all_dims:
+        code = dim['dimensionId']
+        if type(dim['dimensionTitles']['dimensionTitle']) == list:
+            name = dim['dimensionTitles']['dimensionTitle'][0]['$']
+        else:
+            name = dim['dimensionTitle']['$']
+        assert name != '', "Cannot identify CL_ name from dataset details"        
+        dimList.append((code, name))
+
+    # grab the obs count for validation
+    obsCount = jsonAsDict['ons']['datasetDetail']['obsCount']  
     
     """
     -------------------------
@@ -115,47 +117,31 @@ def buildStructureDict(url):
                     }
     """
     
-    # if it wont return a codelist we need to confirm its geography (they're blocked)
     knownHierarchies = ['2011WKWZH','2011PARISH','2015EUROSTATH','2014WARDH','2011STATH',
                         '2011WARDH','2011PCONH','2013WARDH','2011NAWH','2011CMLADH',
                         '2013HEALTHH','2011HTWARDH','2012WARDH','2011NAPH','UKWARD','2011BUAH']
-                        
+    
     hierarchy = ''
     structureDict = {}
-    for dim in jsonAsDICT['ons']['dimensionList']['dimension']:
+    for dim in dimList:
         
-        name = dim['names']['name'][0]['$']
-        code = dim['id']
+        code = dim[0]
+        name = dim[1]
 
         if code in knownHierarchies:
             hierarchy = code
-            
-        # Drill down into the dimensonsion url as json and populate the codelist
-        codeListUrl = dim['urls']['url'][1]['href']
-        
 
-        oldrl = 'http://data.ons.gov.uk/ons/api/data/' + codeListUrl
+        # Build the generic url (cant use specific as some are broken/duplicated)
+        if "context=Social" in url:
+            context = "Social"
+        if "context=Economic" in url:
+            context = "Economic"
+        if "context=Census" in url:
+            context = "Census"
+        newurl = "http://web.ons.gov.uk/ons/api/data/classification/{cl}.json?apikey=Y6Xs59zXU0&context={cont}".format(cont=context,cl=code) 
+                
+        codeData = requests.get(newurl)
 
-        # X -----------------------
-        # TODO - must be a better way
-        """
-        Classifications via dimension are n when its shared across multiple differentiated files (must be anti-repetition, maybe?)
-        instead, we're going to hack the generic classification url out of what we've got for every case.
-        
-        oldrl http://data.ons.gov.uk/ons/api/data/dataset/SAPEDE/dimension/CL_0000635.json?apikey=Y6Xs59zXU0&context=Social&geog=2011WARDH&diff=2003
-        newrl http://web.ons.gov.uk/ons/api/data/classification/CL_0000635.json?apikey=Y6Xs59zXU0&context=Social
-        
-        Its bigger and slower
-        """
-        # TODO - some caching mechanism for this
-        
-        newrl = 'http://web.ons.gov.uk/ons/api/data/classification/' + oldrl.split('/dimension/')[1]
-        newrl = newrl.split('&geo')[0].strip()
-        # X - ------------------
-        
-        
-        codeData = requests.get(newrl)
-        
         itemCodeList = {}
         try:
             codeListAsDICT = json.loads(codeData.text)
@@ -163,8 +149,8 @@ def buildStructureDict(url):
             pass # its geography, its blocked
         
         try:
-            if True:
-
+            if True:  
+                
                 # Codelists are sometime a Dict, sometimes a list of dicts...because.
                 if type(codeListAsDICT['Structure']['CodeLists']['CodeList']) == list:
                     tryAll = codeListAsDICT['Structure']['CodeLists']['CodeList']
@@ -194,7 +180,14 @@ def buildStructureDict(url):
                                 n = item['Description'][0]['$']
                             except:
                                 n = item['Description']['$']
+
+                            # welsh language and bad WDA data fixes
+                            # TODO - hacky
+                            if n == 'Ynys M\u00ef\u00bf\u00bdn': n = 'Ynys MÃ´n'
+                            if n =='Manufacture of builders\u00c6 ware of plastic': n = "Manufacture of builders' ware of plastic"
+                            
                             c = item['@value']
+                            
                             itemCodeList.update({n:c})
                             
                         # Need to adress the spectre of codelists with identical keys but different values
@@ -212,7 +205,7 @@ def buildStructureDict(url):
                         pass #its in here somewhere
                         
         except:
-            assert code in knownHierarchies, 'Failed to build codelist for ' + str(code) + ' ' + newrl
+            assert code in knownHierarchies, 'Failed to build codelist for ' + str(code) + ' ' + newurl
             
         structureDict.update({name:{'code':code, 'codeList':itemCodeList}})
     
@@ -223,22 +216,26 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
 
     # if we're adding a row and it seems the wront length.... feedback
     def throwRowLengthError(dimDict, row, i, justDims, justItems, timeDim, timeItem, oldrow, newrow, structureDICT):
+
+        # dump the lookups so we can find out what went wrong
+        with open('debug-Dict.json', 'w') as debugDICT:
+            json.dump(structureDICT, debugDICT)
+            
         print ('\nError: Generating row of unexpected length')
         print ('--------------------------------------------')
+        print ('The structureDICT (lookups) have been output as debug-Dict.json:', '\n')
         print ('Row length expected/got: ', oldrow, newrow)
-        print ('Dimensions Cell: ', dimDict['dimensions'][i])
+        print ('Dimensions Cell: ', str(dimDict['dimensions'][i]))
         print ('Dimensions Found:' + str(justDims) + '\n')
-        print ('Items Cell: ', dimDict['items'][i])
+        print ('Items Cell: ', str(dimDict['items'][i]))
         print ('Items Found:' + str(justItems) + '\n')
         print ('Chosen item Dim/Item: ', timeDim, timeItem)
-        print ('Target Cell: ', row[i], '\n')
-        print ('The structureDICT (lookups) have been output as debug-Dict.json:')
+        print ('Target Cell: ', row[i])
         print ('--------------------------------------------')
+        print('Killing process')
         
-        # dump the lookups so we can find out what went wrong
-        with open('debug-Dict.json' 'w') as debugDICT:
-            json.dump(structureDICT, debugDICT)
-        
+        # kill the script, we dont want to output this mess
+        sys.exit()
         
         
     # Keeps track of previous 4 rows read
@@ -285,6 +282,7 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                     # derrive it from timeItem
                     if timeDim == 'Time' or timeDim =='time':
                         timeDim, timeItem = cleanTimeString(timeItem)
+                        timeDim = timeDim.capitalize()
 
             return timeDim, timeItem, justDims, justItems
         
@@ -319,7 +317,7 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
             for attempt in attempts:
                 try: # keep trying to pattern match
                     try:        
-                        cols = cols + (structureDICT[dims[i]]['code'], dims[i], structureDICT[dims[i]]['codeList'][attempt])  # the '' is a space for for CL_
+                        cols = cols + (structureDICT[dims[i]]['code'], dims[i].capitalize(), structureDICT[dims[i]]['codeList'][attempt])  # the '' is a space for for CL_
                     except:
                         pass # so we move to the next
                 except:
@@ -346,7 +344,6 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
         
         # settle on cv or no
         if '[CV' in cell:
-            target = cell
             cellbits = cell.split('[CV')
             cell = cellbits[0].strip()
             cv = cellbits[1].replace(']', '').strip()
@@ -369,7 +366,7 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
         try:
             # is it just a year?
             cell = int(cell)
-            return 'year', cell
+            return 'Year', cell
         except:
             pass # its not that simple
             
@@ -377,14 +374,14 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
         quarters = ['Q1', 'Q2', 'Q3', 'Q4']
         for q in quarters:
             if q in cell:
-                return 'quarter', cell
+                return 'Quarter', cell
         
         # months
         months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
                   'Aug', 'Sep' 'Oct', 'Nov', 'Dec']
         for m in months:
             if m in cell or m.upper()  in cell or m.lower() in cell:
-                return 'months', cell
+                return 'Months', cell
     
         # if we cant identify return blanks
         return '', ''
@@ -403,24 +400,24 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
         assert cell not in nonSpecificDiff, "Non Specific Time Differentiator or not in 'cell' A3. Operation Aborted"
         
         SpecificDiffs = {
-                        '2014':['2014', 'year'],
-                        '2004':['2003', 'year'],
-                        '2012':['2012', 'year'],
-                        '2015':['2015', 'year'],
-                        '2016Q3':['Q3 2016','quarter'],
-                        '2002':['2002', 'year'],
-                        'Dec2016':['Dec 2016', 'month'],
-                        '2003':['2003', 'year'],
-                        '2009':['2009', 'year'],
-                        '2007':['2007', 'year'],
-                        '2006':['2006', 'year'],
-                        'Q32016':['Q3 2016', 'quarter'],
-                        '2013':['2013', 'year'],
-                        '2016':['2016', 'year'],
-                        '2005':['2005', 'year'],
-                        '2008':['2008', 'year'],
-                        '2011':['2011', 'year'],
-                        '2010':['2010', 'year'], 
+                        '2014':['2014', 'Year'],
+                        '2004':['2003', 'Year'],
+                        '2012':['2012', 'Year'],
+                        '2015':['2015', 'Year'],
+                        '2016Q3':['Q3 2016','Quarter'],
+                        '2002':['2002', 'Year'],
+                        'Dec2016':['Dec 2016', 'Month'],
+                        '2003':['2003', 'Year'],
+                        '2009':['2009', 'Year'],
+                        '2007':['2007', 'Year'],
+                        '2006':['2006', 'Year'],
+                        'Q32016':['Q3 2016', 'Quarter'],
+                        '2013':['2013', 'Year'],
+                        '2016':['2016', 'Year'],
+                        '2005':['2005', 'Year'],
+                        '2008':['2008', 'Year'],
+                        '2011':['2011', 'Year'],
+                        '2010':['2010', 'Year'], 
                          }
         return SpecificDiffs[cell][1], SpecificDiffs[cell][0]
 
@@ -507,12 +504,10 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                     
                     # TODO - too hacky. not DRY!
                     timeWords = ['year', 'Year', 'Month', 'month', 'Quarter', 'quarter', 'Time', 'time']
-                    if len([x for x in dimSample if x in timeWords]) > 0:
+                    if len([x for x in dimSample if x in timeWords]) == 0 and timeIndex == False:
                         numberOfDims += 1 # account for missing time dim
-                    
-                    # account for having a time columns
-                    if timeIndex != False:
-                        numberOfDims += 1
+                    # elif timeIndex != False:   # use elif so we dont account for this twice
+                    #    numberOfDims += 1
                     
                     for i in range(1, numberOfDims+2):
                         headerRow.append('Dimension_Hierarchy_' + str(i))
@@ -573,7 +568,7 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
         
                             # Geo triple
                             newrow.append(hierarchy)
-                            newrow.append('Geographic_Hierarchy')
+                            newrow.append('Geography')
                             newrow.append(row[geoIndex])
                             
                             # add dimension triples             
@@ -603,7 +598,7 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
 
     if int(obOutCount) == int(obsCount):
         # it does otherwise we wouldnt get here, but dont want to print this twice
-        print ('Sucess: transformed ' + str(obOutCount) + ' of ' + str(obsCount) + ' obersations.')    
+        print ('Sucess: transformed ' + str(obOutCount) + ' of ' + str(obsCount) + ' observations.')    
 
 """
 Main
