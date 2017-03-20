@@ -181,13 +181,8 @@ def buildStructureDict(url):
                             except:
                                 n = item['Description']['$']
 
-                            # welsh language and bad WDA data fixes
-                            # TODO - hacky
-                            if n == 'Ynys M\u00ef\u00bf\u00bdn': n = 'Ynys MÃ´n'
-                            if n =='Manufacture of builders\u00c6 ware of plastic': n = "Manufacture of builders' ware of plastic"
-                            
                             c = item['@value']
-                            
+
                             itemCodeList.update({n:c})
                             
                         # Need to adress the spectre of codelists with identical keys but different values
@@ -266,12 +261,13 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
             if dims[i] in timeNames:
                 timeNum = i
                 doTime = True
-        
+                
         if doTime:
             justDims = ()
             justItems = ()
             for i in range(0, len(items)):
                 if i != timeNum:
+
                     justDims = justDims + (dims[i],)
                     justItems = justItems + (items[i],)
                 else:
@@ -292,15 +288,22 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
     def contentSplit(dims, items, structureDICT):
         
         assert len(dims) == len(items), "Uneven split in Items and Dimensions"
-        
+
         cols = () # tuple as order is critical
         for i in range(0, len(dims)):
             
-            attempts = [items[i]] # match we'll try. add to this as needed
+            """
+            WDA is a quagmire of text strings that dont -quite- match up.
+            The following is a list of variations to try when trying to match the in-csv text to the text in classifications API
+            """
+            # TODO - there must be a better way
+            
+            # A list with one variation, we'll add more as we go then try the lot
+            attempts = [items[i]]
 
-            # clean the shite out of the item text
-            if items[i][:6] == 'Total:':
-                noTotal = items[i].replace('Total: ', '')
+            # if 'Total:  ', clean up and try variations
+            if items[i][:7] == 'Total: ':
+                noTotal = items[i].replace('Total: ', '').strip()
                 
                 # 'Total ' prefix removed then' + dimension name pluralised
                 pluralCombineTotal = str(noTotal + ' ' + dims[i] + 's')  # add Pluralise
@@ -312,19 +315,38 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                 
                 # 'Total ' prefix removed
                 attempts.append(noTotal)
+
+            # UKBAF01 Handling
+            noMeasure = items[i].replace('Â£', '')
+            noMeasure = noMeasure.replace('£', '')
+            noMeasure = noMeasure.replace('(Thousands)', '').strip()
+            attempts.append(noMeasure)
+            
+            """
+            catches for bad encoding, welsh names etc
+            for now we'll slip them in as a new variation/attempt and refactor wth the rest later
+            """
+            # TODO - waaaaay too hacky
+            if str(items[i]) == '2223 : Manufacture of buildersÃ\u2020 ware of plastic': attempts.append("2223 : Manufacture of buildersÆ ware of plastic")
+            if str(items[i]) == '2223 : Manufacture of buildersï¿½ ware of plastic': attempts.append("2223 : Manufacture of buildersÆ ware of plastic")
+            
             
             # make the triple
+            Seeking = True
             for attempt in attempts:
-                try: # keep trying to pattern match
-                    try:        
+                if Seeking:
+                    try: # keep trying to pattern match                        
                         cols = cols + (structureDICT[dims[i]]['code'], dims[i].capitalize(), structureDICT[dims[i]]['codeList'][attempt])  # the '' is a space for for CL_
+                        Seeking = False    # we've found what we're looking for
                     except:
-                        pass # so we move to the next
-                except:
-                    # No dice, feedback the issue
-                    print ('Cant find a match for <' + items[i] + '> in StructureDICT')
+                        pass   # try the next one
+
+            # if we still havnt found it - bomb out
+            if Seeking:
+                raise ValueError ('Cant find a match for <' + items[i] + '> in StructureDICT\n\n', structureDICT)
                 
         return cols
+        
     
     # Finds the horozonal index for 'Geographic ID. Uses slipcols to narrow down search
     def findGeoIndex(itemrow, skipcols):
