@@ -207,7 +207,7 @@ def buildStructureDict(url):
     return hierarchy, structureDict, obsCount
     
      
-def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, rerun=False):
+def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, yearOverride, rerun=False):
 
     # if we're adding a row and it seems the wront length.... feedback
     def throwRowLengthError(dimDict, row, i, justDims, justItems, timeDim, timeItem, oldrow, newrow, structureDICT):
@@ -455,6 +455,16 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
         obOutCount = 0
         timeIndex = False     # column number for the date
         
+        # the following are somtimes included for structural purposes on WDA
+        # which makes them appear in the un-transfomred CSV but no in the obsCount
+        # need to track if these are present as otherwise they'll throw out the obsCount validation
+        natGeoSkips = {
+                  'K02000001':0,
+                  'K03000001':0,
+                  'K04000001':0,
+                  'E92000001':0,
+                  }
+        
         # get rid of any old verisons so windows doesnt moan
         try:
             os.remove(filename[11:]) # del previous version if applicable
@@ -580,6 +590,13 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                                 timeDim = 'Decennial'
                                 timeItem = '2011'
                                 
+                            try:
+                                yearOverride = int(yearOverride)
+                                timeItem = yearOverride
+                                timeDim = 'year'
+                            except:
+                                pass # not overriding
+                                
                             assert timeDim != '', 'Unable to identify time triple' + dimDict['dimensions'][i] + ' ' + dimDict['items'][i]
                             
                             # X ------------------------------------------
@@ -592,6 +609,11 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                             newrow.append(hierarchy)
                             newrow.append('Geography')
                             newrow.append(row[geoIndex])
+                            # True if its a national code
+                            if row[geoIndex] in natGeoSkips.keys():
+                                if 'Total: Total' in justItems:
+                                    if ob == "":
+                                        natGeoSkips[row[geoIndex]] += 1
                             
                             # add dimension triples             
                             for cell in contentSplit(justDims, justItems, structureDICT):
@@ -608,15 +630,26 @@ def bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, reru
                             mywriter.writerow(newrow)
                         
     targetfile.close()
-    source.close()         
-    # If the obs dont match the count on WDA, rerun assuming we actually want those blank 'cells'
+    source.close()
+    
+    # adapt if we've got national level total and subtotal skips
+    if int(obOutCount) != int(obsCount):
+        noNums = set([v for k, v in natGeoSkips.items()])
+        noNums = min(noNums) 
+        noNums = noNums * 4  # * len(justDims) # because 4 national levels and total per dim
+        if noNums > 0: # and at least once
+            obOutCount -= noNums# remove count for blank total/sub-total national geos
+            print("Structural national geographies without obs detected. Removing from expected observations")
+
+            
+    # If the obs dont match the couvnt on WDA, rerun assuming we actually want those blank 'cells'
     if int(obOutCount) != int(obsCount) and rerun == False:
         print('ObCountError: Assuming no blank observation cells returned an unexpected observations count', obOutCount, ' instead of ', obsCount)
         print('Attempting V3 Transformation with blanks assumed. Assertion error if this fails.') 
-        bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, rerun=True)
+        bodytransform(acsv, structureDICT, hierarchy, obsCount, censusOverride, yearOverride, rerun=True)
         
     else:    
-        assert int(obOutCount) == int(obsCount), str(obOutCount) + '!=' + str(obsCount) + "Output rows to not match number of observations in dataset"
+        assert int(obOutCount) == int(obsCount), str(obOutCount) + ' != ' + str(obsCount) + " Output rows to not match number of observations in dataset"
 
     if int(obOutCount) == int(obsCount):
         # it does otherwise we wouldnt get here, but dont want to print this twice
@@ -627,6 +660,12 @@ Main
 """
 # TODO - all a bit crap really
 identifier = sys.argv[1]
+
+try:
+    yearOverride = int(sys.argv[2])
+except:
+    yearOverride = "not a number!"
+
 
 urls = get_urls(identifier)
 
@@ -664,7 +703,7 @@ for ddurl in urls:
         
         print ('Tranforming CSV to V3')
         # transform the chosen csv
-        bodytransform(targetCSV, structureDICT, hierarchy, obsCount, censusOverride)
+        bodytransform(targetCSV, structureDICT, hierarchy, obsCount, censusOverride, yearOverride)
         
         for filename in os.listdir("."):
             if filename == 'Incomplete-V3_' + targetCSV:
